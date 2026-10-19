@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run (course-debug, sanitizers on)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/course-debug/dungeon_delve",
+      "args": ["--seed", "1337"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "environment": [{ "name": "ASAN_OPTIONS", "value": "detect_leaks=1" }]
+    },
+    {
+      "name": "Run (course-release, clean play-through)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/course-release/dungeon_delve",
+      "args": ["--seed", "1337"],
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb"
+    }
+  ]
+}

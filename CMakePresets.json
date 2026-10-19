@@ -1,0 +1,82 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "course-debug",
+      "displayName": "Course Debug (sanitizers on)",
+      "description": "The preset this course grades against. Use this one unless you are on MSVC.",
+      "binaryDir": "${sourceDir}/build/course-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_STANDARD": "20",
+        "DD_SANITIZE": "ON"
+      }
+    },
+    {
+      "name": "course-release",
+      "displayName": "Course Release (optimized, no sanitizers)",
+      "description": "Use for the timing work in Week 6. Never measure performance in a Debug build.",
+      "binaryDir": "${sourceDir}/build/course-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_STANDARD": "20",
+        "DD_SANITIZE": "OFF"
+      }
+    },
+    {
+      "name": "course-debug-msvc",
+      "displayName": "Course Debug for Visual Studio",
+      "description": "Windows and Visual Studio. No address sanitizer here; see README.md.",
+      "binaryDir": "${sourceDir}/build/course-debug-msvc",
+      "generator": "Visual Studio 17 2022",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "DD_SANITIZE": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "course-debug",
+      "configurePreset": "course-debug"
+    },
+    {
+      "name": "course-release",
+      "configurePreset": "course-release"
+    },
+    {
+      "name": "course-debug-msvc",
+      "configurePreset": "course-debug-msvc",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "course-debug",
+      "configurePreset": "course-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "course-release",
+      "configurePreset": "course-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "course-debug-msvc",
+      "configurePreset": "course-debug-msvc",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

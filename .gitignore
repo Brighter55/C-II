@@ -1,0 +1,16 @@
+build/
+out/
+.vs/
+.vscode/*
+# ...but the three shared editor files ARE part of the course setup, so every
+# student gets CMake Tools pointed at the course presets without configuring it.
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+CMakeUserPresets.json
+*.save
+*.o
+*.obj
+*.exe
+compile_commands.json
