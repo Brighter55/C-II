@@ -71,9 +71,9 @@ struct Merchant {
    program has to change with them.
    --------------------------------------------------------------------------- */
 
-using MonsterPtr  = Monster*;
-using HeroPtr     = Hero*;
-using MerchantPtr = Merchant*;
+using MonsterPtr  = std::unique_ptr<Monster>;
+using HeroPtr     = std::unique_ptr<Hero>;
+using MerchantPtr = std::unique_ptr<Merchant>;
 
 using Wave     = std::vector<MonsterPtr>;
 using Bestiary = std::vector<MonsterPtr>;
