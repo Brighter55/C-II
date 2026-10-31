@@ -23,6 +23,7 @@
 #define DUNGEON_DELVE_H
 
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -87,6 +88,99 @@ inline Monster* raw(const std::unique_ptr<Monster>& p)     { return p.get(); }
 inline Monster* raw(const std::shared_ptr<Monster>& p)     { return p.get(); }
 
 /* ---------------------------------------------------------------------------
+   Week 2 domain vocabulary.
+
+   Each type owns one invariant and enforces it in its constructor, so no
+   caller has to check the value again. The money, harm and dice in this
+   engine were plain ints before this; now they are their own types and the
+   compiler will not let you add a purse to a hit-point total.
+   --------------------------------------------------------------------------- */
+
+class Coin {
+public:
+    explicit Coin(int amount);                 /* throws if amount < 0 */
+    int value() const noexcept;
+
+    Coin& operator+=(const Coin& rhs);
+    Coin& operator-=(const Coin& rhs);         /* throws if the result < 0 */
+
+    friend Coin operator+(Coin lhs, const Coin& rhs);
+    friend Coin operator-(Coin lhs, const Coin& rhs);
+    friend bool operator==(const Coin& lhs, const Coin& rhs);
+    friend bool operator<(const Coin& lhs, const Coin& rhs);
+    friend std::ostream& operator<<(std::ostream& os, const Coin& c);
+
+private:
+    int amount_{0};                            /* invariant: never negative */
+};
+
+class Damage {
+public:
+    explicit Damage(int amount);               /* throws if amount < 0 */
+    int value() const noexcept;
+
+    Damage& operator+=(const Damage& rhs);
+
+    friend Damage operator+(Damage lhs, const Damage& rhs);
+    friend bool operator==(const Damage& lhs, const Damage& rhs);
+    friend std::ostream& operator<<(std::ostream& os, const Damage& d);
+
+private:
+    int amount_{0};                            /* invariant: never negative */
+};
+
+class Dice {
+public:
+    Dice(int count, int sides);                /* throws if either < 1 */
+    int count() const noexcept;
+    int sides() const noexcept;
+
+private:
+    int count_;
+    int sides_;
+};
+
+class Vec2 {
+public:
+    Vec2(int x, int y);
+    int x() const noexcept;
+    int y() const noexcept;
+
+    Vec2& operator+=(const Vec2& rhs);
+
+    friend Vec2 operator+(Vec2 lhs, const Vec2& rhs);
+    friend bool operator==(const Vec2& lhs, const Vec2& rhs);
+
+private:
+    int x_;
+    int y_;
+};
+
+/* Stateless by design: there is nothing to construct, so the deleted
+   constructor makes the compiler agree with us. */
+class EncounterMath {
+public:
+    EncounterMath() = delete;
+
+    static Damage roll(const Dice& dice);
+    static Damage raw_damage(int strength, const Dice& dice);
+    static Damage apply_armor(Damage raw, int armor);
+};
+
+/* The instance-level counterpoint to EncounterMath: a purse has a balance,
+   so two callers can legitimately want different purses. Two purses cannot
+   share one balance the way a static would force them to. */
+class Purse {
+public:
+    void add(Coin amount);
+    bool spend(Coin amount);                   /* false if the purse is short */
+    Coin total() const noexcept;
+
+private:
+    Coin balance_{0};
+};
+
+/* ---------------------------------------------------------------------------
    Ability tags.
 
    Every ability in the game is an int. resolve_ability() switches on it.
@@ -133,6 +227,27 @@ int apply_damage_to_monster(Monster& m, int incoming);
 int apply_damage_to_hero(Hero& h, int incoming);
 int resolve_attack_on_monster(Hero& attacker, Monster& target);
 int resolve_attack_on_hero(Monster& attacker, Hero& target);
+
+/* Three resolution paths. The cost of each choice, not just the syntax:
+
+   resolve(const Hero&, const Monster&) takes both by const reference and
+   forecasts the damage. Cost: no copies, but the caller must keep both
+   objects alive for the call, and nothing can be mutated.
+
+   resolve(Hero&, Monster&) takes both by non-const reference and applies
+   the damage. Cost: no copies, but the signature announces that the
+   caller's objects change.
+
+   resolve(Hero&, Monster&, Damage&) writes the result into a slot the
+   caller supplies and returns whether the hero is still standing. Cost:
+   no copy of the result, but the caller must declare the Damage first and
+   remember to check the bool.
+
+   Passing either object by value instead would copy the whole struct,
+   including the 32-byte name array, on every call. */
+Damage resolve(Hero& hero, Monster& monster);
+Damage resolve(const Hero& hero, const Monster& monster);
+bool   resolve(Hero& hero, Monster& monster, Damage& out);
 
 /* Abilities. */
 const char* ability_name(int tag);

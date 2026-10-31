@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -243,6 +244,156 @@ int resolve_attack_on_hero(Monster& attacker, Hero& target)
 {
     int raw_damage = compute_raw_damage(attacker.strength, 2, 6);
     return apply_damage_to_hero(target, raw_damage);
+}
+
+/* ---------------------------------------------------------------------------
+   Week 2 domain vocabulary.
+   --------------------------------------------------------------------------- */
+
+Coin::Coin(int amount) : amount_(amount)
+{
+    if (amount < 0)
+        throw std::invalid_argument("Coin cannot be negative");
+}
+
+int Coin::value() const noexcept { return amount_; }
+
+Coin& Coin::operator+=(const Coin& rhs)
+{
+    amount_ += rhs.amount_;
+    return *this;
+}
+
+Coin& Coin::operator-=(const Coin& rhs)
+{
+    if (rhs.amount_ > amount_)
+        throw std::invalid_argument("Coin subtraction cannot go negative");
+    amount_ -= rhs.amount_;
+    return *this;
+}
+
+Coin operator+(Coin lhs, const Coin& rhs) { return lhs += rhs; }
+Coin operator-(Coin lhs, const Coin& rhs) { return lhs -= rhs; }
+bool operator==(const Coin& lhs, const Coin& rhs) { return lhs.amount_ == rhs.amount_; }
+bool operator<(const Coin& lhs, const Coin& rhs) { return lhs.amount_ < rhs.amount_; }
+std::ostream& operator<<(std::ostream& os, const Coin& c)
+{
+    return os << "Coin{ " << c.amount_ << " }";
+}
+
+Damage::Damage(int amount) : amount_(amount)
+{
+    if (amount < 0)
+        throw std::invalid_argument("Damage cannot be negative");
+}
+
+int Damage::value() const noexcept { return amount_; }
+
+Damage& Damage::operator+=(const Damage& rhs)
+{
+    amount_ += rhs.amount_;
+    return *this;
+}
+
+Damage operator+(Damage lhs, const Damage& rhs) { return lhs += rhs; }
+bool operator==(const Damage& lhs, const Damage& rhs) { return lhs.amount_ == rhs.amount_; }
+std::ostream& operator<<(std::ostream& os, const Damage& d)
+{
+    return os << "Damage{ " << d.amount_ << " }";
+}
+
+Dice::Dice(int count, int sides) : count_(count), sides_(sides)
+{
+    if (count < 1 || sides < 1)
+        throw std::invalid_argument("Dice needs at least one die and one side");
+}
+
+int Dice::count() const noexcept { return count_; }
+int Dice::sides() const noexcept { return sides_; }
+
+/* Any pair of ints is a point, so there is no invalid Vec2 to reject. The
+   invariant is structural: a Vec2 combines only with another Vec2. */
+Vec2::Vec2(int x, int y) : x_(x), y_(y) {}
+
+int Vec2::x() const noexcept { return x_; }
+int Vec2::y() const noexcept { return y_; }
+
+Vec2& Vec2::operator+=(const Vec2& rhs)
+{
+    x_ += rhs.x_;
+    y_ += rhs.y_;
+    return *this;
+}
+
+Vec2 operator+(Vec2 lhs, const Vec2& rhs) { return lhs += rhs; }
+bool operator==(const Vec2& lhs, const Vec2& rhs)
+{
+    return lhs.x_ == rhs.x_ && lhs.y_ == rhs.y_;
+}
+
+Damage EncounterMath::roll(const Dice& dice)
+{
+    int total = 0;
+    for (int i = 0; i < dice.count(); i++)
+        total += dd_rand_range(1, dice.sides());
+    return Damage{total};
+}
+
+Damage EncounterMath::raw_damage(int strength, const Dice& dice)
+{
+    return Damage{strength} + roll(dice);
+}
+
+Damage EncounterMath::apply_armor(Damage raw, int armor)
+{
+    int out = raw.value() - armor;
+    if (out < 0) out = 0;
+    return Damage{out};
+}
+
+void Purse::add(Coin amount) { balance_ += amount; }
+
+bool Purse::spend(Coin amount)
+{
+    if (balance_ < amount)
+        return false;
+    balance_ -= amount;
+    return true;
+}
+
+Coin Purse::total() const noexcept { return balance_; }
+
+/* The mutating path: the monster's attack lands on the hero. */
+Damage resolve(Hero& hero, Monster& monster)
+{
+    Dice dice{3, 6};
+    Damage rolled = EncounterMath::roll(dice);
+    Damage landed = EncounterMath::apply_armor(rolled, hero.armor);
+
+    hero.hp -= landed.value();
+    if (hero.hp < 0) hero.hp = 0;
+
+    std::printf("  %s rolls %dd%d .......... %d damage\n",
+                monster.name, dice.count(), dice.sides(), rolled.value());
+    std::printf("  %s takes %d .............. %d / %d HP\n",
+                hero.name, landed.value(), hero.hp, hero.max_hp);
+    std::printf("  Loot ...................... %d gold\n", monster.gold_drop);
+    return landed;
+}
+
+/* The const& path: forecasts the damage without mutating either side. */
+Damage resolve(const Hero& hero, const Monster& monster)
+{
+    (void)monster;
+    Dice dice{3, 6};
+    return EncounterMath::apply_armor(EncounterMath::roll(dice), hero.armor);
+}
+
+/* The out-parameter path: applies the attack and reports through out. */
+bool resolve(Hero& hero, Monster& monster, Damage& out)
+{
+    out = resolve(hero, monster);
+    return hero.hp > 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -782,6 +933,26 @@ int run_campaign(int verbose)
     return cleared;
 }
 
+/* A small demonstration of the Week 2 vocabulary: resolve the attack, then
+   show the purse the loot went into. */
+#ifndef DD_NO_MAIN
+static int run_value_type_demo()
+{
+    dd_seed(1337u);
+
+    HeroPtr hero_owner = make_hero("Ash", 100, 10, 0);
+    MonsterPtr kobold = make_monster("Kobold", "kobold", 10, 3, 0, 24, ABIL_NONE);
+    Purse purse;
+
+    std::printf("> resolve(hero, kobold)\n");
+    resolve(*hero_owner, *kobold);
+    purse.add(Coin{kobold->gold_drop});
+
+    std::printf("\n> purse.total()\n  Coin{ %d }\n", purse.total().value());
+    return 0;
+}
+#endif /* DD_NO_MAIN */
+
 /* ---------------------------------------------------------------------------
    main
    --------------------------------------------------------------------------- */
@@ -795,6 +966,8 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--quiet") == 0) {
             verbose = 0;
+        } else if (std::strcmp(argv[i], "--demo") == 0) {
+            return run_value_type_demo();
         } else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             seed = (unsigned)std::atoi(argv[i + 1]);
             i++;
