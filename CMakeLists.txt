@@ -92,6 +92,23 @@ target_link_libraries(dungeon_delve PRIVATE dd_sanitize_flags)
 add_executable(ownership_audit labs/week01_ownership_audit/ownership_audit.cpp)
 target_link_libraries(ownership_audit PRIVATE dd_sanitize_flags)
 
+# Lab targets live in subdirectories now, which by default would put their
+# executables under build/<preset>/labs/<name>/. Every instruction in this
+# course says ./build/<preset>/<name>, so pin the output directory and keep
+# that true.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# Each lab folder carries its own CMakeLists.txt and is added only if it is
+# present. A lab that has not been published yet is simply absent, so the
+# project still configures, and publishing one is a git pull with no edit here.
+file(GLOB DD_LAB_DIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/labs
+     ${CMAKE_CURRENT_SOURCE_DIR}/labs/*)
+foreach(dd_lab ${DD_LAB_DIRS})
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/labs/${dd_lab}/CMakeLists.txt)
+    add_subdirectory(labs/${dd_lab})
+  endif()
+endforeach()
+
 # ---------------------------------------------------------------------------
 # Tests.
 # ---------------------------------------------------------------------------
