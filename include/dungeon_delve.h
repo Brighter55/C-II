@@ -28,41 +28,115 @@
 #include <vector>
 
 /* ---------------------------------------------------------------------------
-   Entities. Three separate structs. They share most of their fields but a
-   hero is not a monster and a monster is not a merchant, so three structs.
+   Entities: the Build 3 hierarchy.
+
+   Diamond resolution. Entity, Combatant, and Lootable each inherit
+   Describable virtually. Hero, Monster, and Merchant therefore contain one
+   Describable subobject, not one per path. Without `virtual` on all three
+   edges into Describable, Monster would get a Describable through Entity and
+   another through Combatant and Lootable. describe() would be ambiguous and
+   the shared base state would be duplicated. The virtual keyword belongs on
+   the edge into Describable, because that is the base being collapsed.
+
+   Ownership of state:
+     Entity     owns the name and the description contract.
+     Combatant  owns hit points, strength, and armor. Merchant has no hit
+                points, so it does not inherit Combatant.
+     Lootable   owns the "has gold that can change hands" capability.
    --------------------------------------------------------------------------- */
 
-struct Hero {
-    char name[32];
-    int  hp;
-    int  max_hp;
-    int  strength;
-    int  armor;
-    int  gold;
-    int  xp;
-    int  level;
-    int  potions;
+class Describable {
+public:
+    virtual ~Describable() = default;
+    virtual std::string describe() const = 0;
+    virtual std::string vitals_text() const = 0;
 };
 
-struct Monster {
-    char name[32];
-    char species[24];
-    int  hp;
-    int  max_hp;
-    int  strength;
-    int  armor;
-    int  gold_drop;
-    int  ability_tag;
-    int  is_dead;
-    int  summon_budget;
+class Entity : public virtual Describable {
+public:
+    virtual ~Entity() = default;
+
+    virtual std::string name() const { return name_; }
+    void set_name(const char* name);
+
+    virtual const char* kind() const = 0;
+    virtual std::string capabilities() const = 0;
+
+    std::string describe() const override;
+
+protected:
+    explicit Entity(const char* name = "");
+
+private:
+    std::string name_;
 };
 
-struct Merchant {
-    char name[32];
-    int  gold;
-    int  markup_percent;
-    int  stock_tags[8];
-    int  stock_count;
+class Combatant : public virtual Describable {
+public:
+    virtual ~Combatant() = default;
+
+    std::string vitals_text() const override;
+
+    int hp       = 0;
+    int max_hp   = 0;
+    int strength = 0;
+    int armor    = 0;
+};
+
+class Lootable : public virtual Describable {
+public:
+    virtual ~Lootable() = default;
+    virtual int loot_gold() const = 0;
+};
+
+class Hero : public Entity, public Combatant {
+public:
+    Hero() = default;
+    Hero(const char* name, int hp, int strength, int armor);
+    ~Hero() override = default;
+
+    const char* kind() const override { return "Hero"; }
+    std::string capabilities() const override { return "combatant"; }
+
+    int gold    = 0;
+    int xp      = 0;
+    int level   = 1;
+    int potions = 2;
+};
+
+class Monster : public Entity, public Combatant, public Lootable {
+public:
+    Monster() = default;
+    Monster(const char* name, const char* species, int hp, int strength,
+            int armor, int gold_drop, int ability_tag);
+    ~Monster() override = default;
+
+    const char* kind() const override { return "Monster"; }
+    std::string capabilities() const override { return "combatant, lootable"; }
+    int loot_gold() const override { return gold_drop; }
+
+    char species[24] = {};
+    int  gold_drop     = 0;
+    int  ability_tag   = 0;
+    int  is_dead       = 0;
+    int  summon_budget = 0;
+};
+
+class Merchant : public Entity, public Lootable {
+public:
+    Merchant() = default;
+    Merchant(const char* name, int gold, int markup);
+    ~Merchant() override = default;
+
+    const char* kind() const override { return "Merchant"; }
+    std::string capabilities() const override { return "lootable"; }
+    std::string vitals_text() const override { return "--"; }
+    int loot_gold() const override { return gold; }
+
+    int gold           = 0;
+    int markup_percent = 0;
+    int stock_tags[8]  = { -1, -1, -1, -1, -1, -1, -1, -1 };
+    int stock_count    = 0;
 };
 
 /* ---------------------------------------------------------------------------
@@ -86,6 +160,22 @@ using Bestiary = std::vector<MonsterPtr>;
 inline Monster* raw(Monster* p)                            { return p; }
 inline Monster* raw(const std::unique_ptr<Monster>& p)     { return p.get(); }
 inline Monster* raw(const std::shared_ptr<Monster>& p)     { return p.get(); }
+
+/* A collection of entities that owns them through the Entity interface.
+   describe_all() prints the roster and returns the same text. */
+class Roster {
+public:
+    void add(HeroPtr hero);
+    void add(MonsterPtr monster);
+    void add(MerchantPtr merchant);
+    void add(std::unique_ptr<Entity> entity);
+
+    std::string describe_all() const;
+    std::size_t size() const noexcept { return entities_.size(); }
+
+private:
+    std::vector<std::unique_ptr<Entity>> entities_;
+};
 
 /* ---------------------------------------------------------------------------
    Week 2 domain vocabulary.
@@ -223,8 +313,15 @@ MerchantPtr make_merchant(const char* name, int gold, int markup);
 /* Damage. */
 int compute_raw_damage(int strength, int dice_count, int dice_sides);
 int apply_armor(int raw_damage, int armor);
+int apply_damage(Combatant& combatant, int incoming);
 int apply_damage_to_monster(Monster& m, int incoming);
 int apply_damage_to_hero(Hero& h, int incoming);
+
+/* The functions named in HIERARCHY.md. Each one takes a base class and works
+   for every derived type that reaches it. */
+int         loot_gold_of(const Lootable& lootable);
+std::string describe_entity(const Entity& entity);
+std::string describe_object(const Describable& object);
 int resolve_attack_on_monster(Hero& attacker, Monster& target);
 int resolve_attack_on_hero(Monster& attacker, Hero& target);
 

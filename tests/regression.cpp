@@ -186,7 +186,7 @@ static int test_roster_survives_reallocation()
     /* Collect the names that are genuinely in the wave now. */
     std::vector<std::string> real_names;
     for (size_t i = 0; i < wave.size(); i++)
-        real_names.push_back(std::string(wave[i]->name));
+        real_names.push_back(std::string(wave[i]->name()));
 
     int unrecognized = 0;
     for (size_t a = 0; a < acted.size(); a++) {

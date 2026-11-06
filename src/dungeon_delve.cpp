@@ -20,7 +20,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -115,53 +117,130 @@ const char* ability_name(int tag)
    Allocation helpers.
    --------------------------------------------------------------------------- */
 
+Entity::Entity(const char* name)
+    : name_(name != nullptr ? name : "")
+{
+}
+
+void Entity::set_name(const char* name)
+{
+    name_ = name != nullptr ? name : "";
+}
+
+std::string Entity::describe() const
+{
+    std::ostringstream out;
+    out << std::left
+        << std::setw(11) << ("[" + std::string(kind()) + "]")
+        << std::setw(13) << name()
+        << std::setw(13) << vitals_text()
+        << capabilities();
+    return out.str();
+}
+
+std::string Combatant::vitals_text() const
+{
+    return std::to_string(hp) + "/" + std::to_string(max_hp) + " HP";
+}
+
+Hero::Hero(const char* name, int hp, int strength, int armor)
+    : Entity(name)
+{
+    this->hp       = hp;
+    this->max_hp   = hp;
+    this->strength = strength;
+    this->armor    = armor;
+}
+
+Monster::Monster(const char* name, const char* species, int hp, int strength,
+                 int armor, int gold_drop, int ability_tag)
+    : Entity(name)
+{
+    this->hp       = hp;
+    this->max_hp   = hp;
+    this->strength = strength;
+    this->armor    = armor;
+    this->gold_drop = gold_drop;
+    this->ability_tag = ability_tag;
+    this->is_dead = 0;
+    this->summon_budget = (ability_tag == ABIL_SUMMON) ? 1 : 0;
+    std::strncpy(this->species, species != nullptr ? species : "", 23);
+    this->species[23] = '\0';
+}
+
+Merchant::Merchant(const char* name, int gold, int markup)
+    : Entity(name)
+{
+    this->gold = gold;
+    this->markup_percent = markup;
+    this->stock_count = 0;
+    for (int i = 0; i < 8; ++i)
+        this->stock_tags[i] = -1;
+}
+
+void Roster::add(HeroPtr hero)
+{
+    entities_.push_back(std::move(hero));
+}
+
+void Roster::add(MonsterPtr monster)
+{
+    entities_.push_back(std::move(monster));
+}
+
+void Roster::add(MerchantPtr merchant)
+{
+    entities_.push_back(std::move(merchant));
+}
+
+void Roster::add(std::unique_ptr<Entity> entity)
+{
+    entities_.push_back(std::move(entity));
+}
+
+std::string Roster::describe_all() const
+{
+    std::string out;
+    for (const auto& entity : entities_) {
+        out += "  ";
+        out += describe_entity(*entity);
+        out += "\n";
+    }
+    std::fputs(out.c_str(), stdout);
+    return out;
+}
+
+int loot_gold_of(const Lootable& lootable)
+{
+    return lootable.loot_gold();
+}
+
+std::string describe_entity(const Entity& entity)
+{
+    return describe_object(entity);
+}
+
+std::string describe_object(const Describable& object)
+{
+    return object.describe();
+}
+
 HeroPtr make_hero(const char* name, int hp, int strength, int armor)
 {
-    auto h = std::make_unique<Hero>();
-    std::strncpy(h->name, name, 31);
-    h->name[31] = '\0';
-    h->hp       = hp;
-    h->max_hp   = hp;
-    h->strength = strength;
-    h->armor    = armor;
-    h->gold     = 0;
-    h->xp       = 0;
-    h->level    = 1;
-    h->potions  = 2;
-    return h;
+    return std::make_unique<Hero>(name, hp, strength, armor);
 }
 
 MonsterPtr make_monster(const char* name, const char* species,
                         int hp, int strength, int armor,
                         int gold_drop, int ability_tag)
 {
-    auto m = std::make_unique<Monster>();
-    std::strncpy(m->name, name, 31);
-    m->name[31] = '\0';
-    std::strncpy(m->species, species, 23);
-    m->species[23] = '\0';
-    m->hp            = hp;
-    m->max_hp        = hp;
-    m->strength      = strength;
-    m->armor         = armor;
-    m->gold_drop     = gold_drop;
-    m->ability_tag   = ability_tag;
-    m->is_dead       = 0;
-    m->summon_budget = (ability_tag == ABIL_SUMMON) ? 1 : 0;
-    return m;
+    return std::make_unique<Monster>(name, species, hp, strength, armor,
+                                     gold_drop, ability_tag);
 }
 
 MerchantPtr make_merchant(const char* name, int gold, int markup)
 {
-    auto mer = std::make_unique<Merchant>();
-    std::strncpy(mer->name, name, 31);
-    mer->name[31]       = '\0';
-    mer->gold           = gold;
-    mer->markup_percent = markup;
-    mer->stock_count    = 0;
-    for (int i = 0; i < 8; i++)
-        mer->stock_tags[i] = -1;
-    return mer;
+    return std::make_unique<Merchant>(name, gold, markup);
 }
 
 /* ---------------------------------------------------------------------------
@@ -211,25 +290,25 @@ int apply_armor(int raw_damage, int armor)
     return out;
 }
 
+int apply_damage(Combatant& combatant, int incoming)
+{
+    int final_damage = apply_armor(incoming, combatant.armor);
+
+    combatant.hp -= final_damage;
+    if (combatant.hp < 0) combatant.hp = 0;
+    return final_damage;
+}
+
 int apply_damage_to_monster(Monster& m, int incoming)
 {
-    int final_damage = apply_armor(incoming, m.armor);
-
-    m.hp -= final_damage;
-    if (m.hp <= 0) {
-        m.hp = 0;
-        m.is_dead = 1;
-    }
+    int final_damage = apply_damage(m, incoming);
+    if (m.hp == 0) m.is_dead = 1;
     return final_damage;
 }
 
 int apply_damage_to_hero(Hero& h, int incoming)
 {
-    int final_damage = apply_armor(incoming, h.armor);
-
-    h.hp -= final_damage;
-    if (h.hp < 0) h.hp = 0;
-    return final_damage;
+    return apply_damage(h, incoming);
 }
 
 /* Hero swings at a monster. Returns the damage that landed. */
@@ -374,9 +453,9 @@ Damage resolve(Hero& hero, Monster& monster)
     if (hero.hp < 0) hero.hp = 0;
 
     std::printf("  %s rolls %dd%d .......... %d damage\n",
-                monster.name, dice.count(), dice.sides(), rolled.value());
+                monster.name().c_str(), dice.count(), dice.sides(), rolled.value());
     std::printf("  %s takes %d .............. %d / %d HP\n",
-                hero.name, landed.value(), hero.hp, hero.max_hp);
+                hero.name().c_str(), landed.value(), hero.hp, hero.max_hp);
     std::printf("  Loot ...................... %d gold\n", monster.gold_drop);
     return landed;
 }
@@ -413,7 +492,7 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             amount = resolve_attack_on_hero(self, hero);
             if (verbose)
                 std::printf("  %s flails .................. %d damage\n",
-                            self.name, amount);
+                            self.name().c_str(), amount);
             break;
 
         case ABIL_CLEAVE:
@@ -422,7 +501,7 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             apply_damage_to_hero(hero, amount / 2);
             if (verbose)
                 std::printf("  %s cleaves ................. %d damage\n",
-                            self.name, amount);
+                            self.name().c_str(), amount);
             break;
 
         case ABIL_BITE:
@@ -432,11 +511,11 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
                 amount += 2;
                 if (verbose)
                     std::printf("  %s bites deep ............. %d damage\n",
-                                self.name, amount);
+                                self.name().c_str(), amount);
             } else {
                 if (verbose)
                     std::printf("  %s bites ................... %d damage\n",
-                                self.name, amount);
+                                self.name().c_str(), amount);
             }
             break;
 
@@ -446,7 +525,7 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             if (self.hp > self.max_hp) self.hp = self.max_hp;
             if (verbose)
                 std::printf("  %s mends ................... +%d HP\n",
-                            self.name, amount);
+                            self.name().c_str(), amount);
             break;
 
         case ABIL_HEX:
@@ -455,7 +534,7 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             if (hero.strength < 1) hero.strength = 1;
             if (verbose)
                 std::printf("  %s hexes ................... -%d STR\n",
-                            self.name, amount);
+                            self.name().c_str(), amount);
             break;
 
         case ABIL_SUMMON:
@@ -465,12 +544,12 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
                 wave.push_back(std::move(pup));
                 amount = 1;
                 if (verbose)
-                    std::printf("  %s summons a Whelp!\n", self.name);
+                    std::printf("  %s summons a Whelp!\n", self.name().c_str());
             } else {
                 amount = resolve_attack_on_hero(self, hero);
                 if (verbose)
                     std::printf("  %s is out of whelps ....... %d damage\n",
-                                self.name, amount);
+                                self.name().c_str(), amount);
             }
             break;
 
@@ -479,7 +558,7 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             amount = 2;
             if (verbose)
                 std::printf("  %s guards .................. +2 armor\n",
-                            self.name);
+                            self.name().c_str());
             break;
 
         case ABIL_RALLY:
@@ -490,14 +569,14 @@ int resolve_ability(int tag, Monster& self, Hero& hero,
             amount = 1;
             if (verbose)
                 std::printf("  %s rallies the pack ........ +1 STR each\n",
-                            self.name);
+                            self.name().c_str());
             break;
 
         default:
             amount = resolve_attack_on_hero(self, hero);
             if (verbose)
                 std::printf("  %s does something ......... %d damage\n",
-                            self.name, amount);
+                            self.name().c_str(), amount);
             break;
     }
 
@@ -547,7 +626,7 @@ MonsterPtr spawn_from_bestiary(Bestiary& bestiary, const char* species)
     Monster* proto = find_in_bestiary(bestiary, species);
     if (proto == nullptr) return MonsterPtr{};
 
-    return make_monster(proto->name, proto->species, proto->max_hp,
+    return make_monster(proto->name().c_str(), proto->species, proto->max_hp,
                         proto->strength, proto->armor, proto->gold_drop,
                         proto->ability_tag);
 }
@@ -587,7 +666,7 @@ int run_monster_round(Wave& wave, Hero& hero, int verbose,
         if (hero.hp <= 0) break;
 
         if (acted_names != nullptr)
-            acted_names->push_back(std::string(m->name));
+            acted_names->push_back(m->name());
 
         total += resolve_ability(m->ability_tag, *m, hero, wave, verbose);
     }
@@ -604,9 +683,9 @@ int run_hero_round(Wave& wave, Hero& hero, int verbose)
         int dealt = resolve_attack_on_monster(hero, *raw(wave[i]));
         if (verbose) {
             std::printf("  %s strikes %s ........... %d damage\n",
-                        hero.name, wave[i]->name, dealt);
+                        hero.name().c_str(), wave[i]->name().c_str(), dealt);
             if (wave[i]->is_dead)
-                std::printf("  %s falls.\n", wave[i]->name);
+                std::printf("  %s falls.\n", wave[i]->name().c_str());
         }
         return dealt;
     }
@@ -641,14 +720,14 @@ int run_encounter(Hero& hero, Wave& wave, int verbose)
     }
 
     if (hero.hp <= 0) {
-        if (verbose) std::printf("\n%s has fallen.\n", hero.name);
+        if (verbose) std::printf("\n%s has fallen.\n", hero.name().c_str());
         return 0;
     }
 
     int gold = 0;
     for (size_t i = 0; i < wave.size(); i++) {
         if (wave[i]->is_dead)
-            gold += wave[i]->gold_drop;
+            gold += loot_gold_of(*wave[i]);
     }
 
     hero.gold += gold;
@@ -684,7 +763,7 @@ void check_level_up(Hero& h, int verbose)
         h.strength += 2;
 
         if (verbose)
-            std::printf("\n*** %s reaches level %d ***\n", h.name, h.level);
+            std::printf("\n*** %s reaches level %d ***\n", h.name().c_str(), h.level);
     }
 }
 
@@ -702,7 +781,7 @@ void visit_merchant(Merchant& mer, Hero& hero, int verbose)
     int potion_price = merchant_price(mer, 15);
 
     if (verbose) {
-        std::printf("\n--- %s's stall ---\n", mer.name);
+        std::printf("\n--- %s's stall ---\n", mer.name().c_str());
         std::printf("  potion ..... %d gold (you have %d)\n",
                     potion_price, hero.gold);
     }
@@ -725,7 +804,7 @@ void quaff_potion(Hero& h, int verbose)
     h.hp += healed;
     if (h.hp > h.max_hp) h.hp = h.max_hp;
     if (verbose)
-        std::printf("  %s drinks a potion ....... +%d HP\n", h.name, healed);
+        std::printf("  %s drinks a potion ....... +%d HP\n", h.name().c_str(), healed);
 }
 
 /* ---------------------------------------------------------------------------
@@ -738,7 +817,7 @@ int save_hero(Hero& h, const char* path)
     FILE* f = std::fopen(path, "w");
     if (f == nullptr) return 0;
 
-    std::fprintf(f, "%s\n", h.name);
+    std::fprintf(f, "%s\n", h.name().c_str());
     std::fprintf(f, "%d\n", h.hp);
     std::fprintf(f, "%d\n", h.max_hp);
     std::fprintf(f, "%d\n", h.strength);
@@ -763,8 +842,7 @@ HeroPtr load_hero(const char* path)
     if (std::fgets(line, 64, f) == nullptr) { std::fclose(f); return HeroPtr{}; }
     size_t n = std::strlen(line);
     if (n > 0 && line[n - 1] == '\n') line[n - 1] = '\0';
-    std::strncpy(h->name, line, 31);
-    h->name[31] = '\0';
+    h->set_name(line);
 
     std::fscanf(f, "%d", &h->hp);
     std::fscanf(f, "%d", &h->max_hp);
@@ -794,7 +872,7 @@ void print_banner()
 
 void print_hero(Hero& h)
 {
-    std::printf("\n%s  --  level %d\n", h.name, h.level);
+    std::printf("\n%s  --  level %d\n", h.name().c_str(), h.level);
     std::printf("  HP ......... %d / %d\n", h.hp, h.max_hp);
     std::printf("  STR ........ %d\n", h.strength);
     std::printf("  ARMOR ...... %d\n", h.armor);
@@ -808,7 +886,7 @@ void print_wave(Wave& wave)
     std::printf("\nWave:\n");
     for (size_t i = 0; i < wave.size(); i++) {
         std::printf("  %-14s %-11s %3d/%-3d HP  str %-2d  armor %-2d  %s\n",
-                    wave[i]->name, wave[i]->species,
+                    wave[i]->name().c_str(), wave[i]->species,
                     wave[i]->hp, wave[i]->max_hp,
                     wave[i]->strength, wave[i]->armor,
                     ability_name(wave[i]->ability_tag));
@@ -820,7 +898,7 @@ void print_bestiary(Bestiary& bestiary)
     std::printf("\nBestiary (%d entries):\n", (int)bestiary.size());
     for (size_t i = 0; i < bestiary.size(); i++) {
         std::printf("  %-14s %-11s %3d HP  str %-2d  armor %-2d  gold %-3d  %s\n",
-                    bestiary[i]->name, bestiary[i]->species,
+                    bestiary[i]->name().c_str(), bestiary[i]->species,
                     bestiary[i]->max_hp, bestiary[i]->strength,
                     bestiary[i]->armor, bestiary[i]->gold_drop,
                     ability_name(bestiary[i]->ability_tag));
@@ -923,7 +1001,7 @@ int run_campaign(int verbose)
         std::printf("\n");
         for (int i = 0; i < 64; i++) std::printf("=");
         std::printf("\n  %s clears the delve with %d gold.\n",
-                    hero.name, hero.gold);
+                    hero.name().c_str(), hero.gold);
         for (int i = 0; i < 64; i++) std::printf("=");
         std::printf("\n");
     }
@@ -951,6 +1029,27 @@ static int run_value_type_demo()
     std::printf("\n> purse.total()\n  Coin{ %d }\n", purse.total().value());
     return 0;
 }
+
+/* The Build 3 target: one Entity& per line, one Describable subobject each. */
+static int run_roster_demo()
+{
+    Roster roster;
+    roster.add(make_hero("Ash", 100, 10, 3));
+    roster.add(make_monster("Kobold", "kobold", 12, 4, 1, 6, ABIL_BITE));
+    roster.add(make_merchant("Old Yarrow", 400, 35));
+
+    std::printf("> roster.describe_all()\n");
+    roster.describe_all();
+
+    Monster sample("Kobold", "kobold", 12, 4, 1, 6, ABIL_BITE);
+    const Describable* via_entity    = static_cast<const Entity*>(&sample);
+    const Describable* via_combatant = static_cast<const Combatant*>(&sample);
+    const Describable* via_lootable  = static_cast<const Lootable*>(&sample);
+    if (via_entity == via_combatant && via_combatant == via_lootable)
+        std::printf("\n  (one Describable subobject per entity, not two)\n");
+
+    return 0;
+}
 #endif /* DD_NO_MAIN */
 
 /* ---------------------------------------------------------------------------
@@ -968,6 +1067,8 @@ int main(int argc, char** argv)
             verbose = 0;
         } else if (std::strcmp(argv[i], "--demo") == 0) {
             return run_value_type_demo();
+        } else if (std::strcmp(argv[i], "--roster") == 0) {
+            return run_roster_demo();
         } else if (std::strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             seed = (unsigned)std::atoi(argv[i + 1]);
             i++;
