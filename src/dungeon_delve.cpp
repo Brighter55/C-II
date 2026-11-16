@@ -90,28 +90,7 @@ static int LOOT_VALUE[LOOT_COUNT] = {
     4, 6, 1, 12, 3, 8, 15, 5, 7, 2, 3, 20
 };
 
-/* ---------------------------------------------------------------------------
-   Ability tags.
-
-   Every ability in the game is an int. resolve_ability() switches on it.
-   Adding an ability means adding a tag here and a case in every switch that
-   looks at tags, and there are a few of those now.
-   --------------------------------------------------------------------------- */
-
-const char* ability_name(int tag)
-{
-    switch (tag) {
-        case ABIL_NONE:   return "Flail";
-        case ABIL_CLEAVE: return "Cleave";
-        case ABIL_BITE:   return "Bite";
-        case ABIL_MEND:   return "Mend";
-        case ABIL_HEX:    return "Hex";
-        case ABIL_SUMMON: return "Summon";
-        case ABIL_GUARD:  return "Guard";
-        case ABIL_RALLY:  return "Rally";
-    }
-    return "???";
-}
+/* Ability names and dispatch now live in src/abilities/registry.cpp. */
 
 /* ---------------------------------------------------------------------------
    Allocation helpers.
@@ -162,6 +141,8 @@ Monster::Monster(const char* name, const char* species, int hp, int strength,
     this->armor    = armor;
     this->gold_drop = gold_drop;
     this->ability_tag = ability_tag;
+    this->ability = ability_for_tag(ability_tag);
+    if (this->ability == nullptr) this->ability = default_ability();
     this->is_dead = 0;
     this->summon_budget = (ability_tag == ABIL_SUMMON) ? 1 : 0;
     std::strncpy(this->species, species != nullptr ? species : "", 23);
@@ -475,113 +456,7 @@ bool resolve(Hero& hero, Monster& monster, Damage& out)
     return hero.hp > 0;
 }
 
-/* ---------------------------------------------------------------------------
-   resolve_ability()
-
-   Do not touch this. It took forever to get right.
-   --------------------------------------------------------------------------- */
-
-int resolve_ability(int tag, Monster& self, Hero& hero,
-                    Wave& wave, int verbose)
-{
-    int amount = 0;
-
-    switch (tag) {
-
-        case ABIL_NONE:
-            amount = resolve_attack_on_hero(self, hero);
-            if (verbose)
-                std::printf("  %s flails .................. %d damage\n",
-                            self.name().c_str(), amount);
-            break;
-
-        case ABIL_CLEAVE:
-            amount = resolve_attack_on_hero(self, hero);
-            amount = amount + (amount / 2);
-            apply_damage_to_hero(hero, amount / 2);
-            if (verbose)
-                std::printf("  %s cleaves ................. %d damage\n",
-                            self.name().c_str(), amount);
-            break;
-
-        case ABIL_BITE:
-            amount = resolve_attack_on_hero(self, hero);
-            if (dd_rand_range(1, 100) > 70) {
-                apply_damage_to_hero(hero, 2);
-                amount += 2;
-                if (verbose)
-                    std::printf("  %s bites deep ............. %d damage\n",
-                                self.name().c_str(), amount);
-            } else {
-                if (verbose)
-                    std::printf("  %s bites ................... %d damage\n",
-                                self.name().c_str(), amount);
-            }
-            break;
-
-        case ABIL_MEND:
-            amount = roll_dice(2, 4);
-            self.hp += amount;
-            if (self.hp > self.max_hp) self.hp = self.max_hp;
-            if (verbose)
-                std::printf("  %s mends ................... +%d HP\n",
-                            self.name().c_str(), amount);
-            break;
-
-        case ABIL_HEX:
-            amount = roll_dice(1, 4);
-            hero.strength -= amount;
-            if (hero.strength < 1) hero.strength = 1;
-            if (verbose)
-                std::printf("  %s hexes ................... -%d STR\n",
-                            self.name().c_str(), amount);
-            break;
-
-        case ABIL_SUMMON:
-            if (self.summon_budget > 0) {
-                self.summon_budget--;
-                MonsterPtr pup = make_monster("Whelp", "whelp", 6, 2, 0, 3, ABIL_NONE);
-                wave.push_back(std::move(pup));
-                amount = 1;
-                if (verbose)
-                    std::printf("  %s summons a Whelp!\n", self.name().c_str());
-            } else {
-                amount = resolve_attack_on_hero(self, hero);
-                if (verbose)
-                    std::printf("  %s is out of whelps ....... %d damage\n",
-                                self.name().c_str(), amount);
-            }
-            break;
-
-        case ABIL_GUARD:
-            self.armor += 2;
-            amount = 2;
-            if (verbose)
-                std::printf("  %s guards .................. +2 armor\n",
-                            self.name().c_str());
-            break;
-
-        case ABIL_RALLY:
-            for (size_t i = 0; i < wave.size(); i++) {
-                if (!wave[i]->is_dead && raw(wave[i]) != &self)
-                    wave[i]->strength += 1;
-            }
-            amount = 1;
-            if (verbose)
-                std::printf("  %s rallies the pack ........ +1 STR each\n",
-                            self.name().c_str());
-            break;
-
-        default:
-            amount = resolve_attack_on_hero(self, hero);
-            if (verbose)
-                std::printf("  %s does something ......... %d damage\n",
-                            self.name().c_str(), amount);
-            break;
-    }
-
-    return amount;
-}
+/* resolve_ability() now lives in src/abilities/registry.cpp. */
 
 /* ---------------------------------------------------------------------------
    Bestiary lookup.
@@ -668,7 +543,16 @@ int run_monster_round(Wave& wave, Hero& hero, int verbose,
         if (acted_names != nullptr)
             acted_names->push_back(m->name());
 
-        total += resolve_ability(m->ability_tag, *m, hero, wave, verbose);
+        const Ability* ability = m->ability;
+        if (ability == nullptr) ability = default_ability();
+
+        try {
+            total += resolve_ability(*ability, *m, hero, wave, verbose);
+        } catch (const AbilityError& e) {
+            if (verbose)
+                std::printf("  %s cannot act: %s\n",
+                            m->name().c_str(), e.what());
+        }
     }
 
     return total;

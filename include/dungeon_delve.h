@@ -22,10 +22,14 @@
 #ifndef DUNGEON_DELVE_H
 #define DUNGEON_DELVE_H
 
+#include <cstddef>
 #include <memory>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+class Ability;
 
 /* ---------------------------------------------------------------------------
    Entities: the Build 3 hierarchy.
@@ -118,6 +122,7 @@ public:
     char species[24] = {};
     int  gold_drop     = 0;
     int  ability_tag   = 0;
+    const Ability* ability = nullptr;   /* non-owning; the registry owns it */
     int  is_dead       = 0;
     int  summon_budget = 0;
 };
@@ -152,6 +157,82 @@ using MerchantPtr = std::unique_ptr<Merchant>;
 
 using Wave     = std::vector<MonsterPtr>;
 using Bestiary = std::vector<MonsterPtr>;
+
+/* ---------------------------------------------------------------------------
+   Abilities: the Build 4 polymorphism layer.
+
+   An ability is a class, not an integer case. The tag is only an address used
+   to find the object. The resolver calls apply() through an Ability& and never
+   asks which concrete type it is holding.
+   --------------------------------------------------------------------------- */
+
+class AbilityError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
+class TargetDefeated : public AbilityError {
+public:
+    TargetDefeated(const std::string& ability, const std::string& target)
+        : AbilityError(ability + " cannot target " + target +
+                       ": target is already defeated") {}
+};
+
+class WaveFull : public AbilityError {
+public:
+    WaveFull(const std::string& ability, std::size_t capacity)
+        : AbilityError(ability + " cannot summon: wave is full at " +
+                       std::to_string(capacity)) {}
+};
+
+class AbilityFailure : public AbilityError {
+public:
+    AbilityFailure(const std::string& ability, const std::string& caster,
+                   const std::string& reason)
+        : AbilityError("ability '" + ability + "' used by " + caster +
+                       " failed: " + reason) {}
+};
+
+class Ability {
+public:
+    virtual ~Ability() = default;
+
+    virtual const char* name() const = 0;
+    virtual std::string describe() const = 0;
+    virtual int apply(Monster& self, Hero& hero, Wave& wave,
+                      int verbose) const = 0;
+};
+
+/* The second level of the hierarchy. It checks the shared precondition for
+   every hostile ability, then hands the effect to the concrete class. Cleave
+   overrides describe() again, which is the inherited-virtual demonstration. */
+class HostileAbility : public Ability {
+public:
+    std::string describe() const override
+    {
+        return std::string(name()) + " (hostile)";
+    }
+
+    int apply(Monster& self, Hero& hero, Wave& wave, int verbose) const override
+    {
+        if (hero.hp <= 0)
+            throw TargetDefeated(name(), hero.name());
+        return effect(self, hero, wave, verbose);
+    }
+
+protected:
+    virtual int effect(Monster& self, Hero& hero, Wave& wave,
+                       int verbose) const = 0;
+};
+
+struct AbilityRegistration {
+    AbilityRegistration(int tag, const Ability* ability);
+};
+
+const Ability* ability_for_tag(int tag);
+const Ability* default_ability();
+int ability_count();
+void register_ability(int tag, const Ability* ability);
 
 /* Produces a plain non-owning Monster* from whatever MonsterPtr currently is.
    Use this when a function needs to hand back something to look at without
@@ -286,6 +367,7 @@ private:
 #define ABIL_SUMMON  5
 #define ABIL_GUARD   6
 #define ABIL_RALLY   7
+#define ABIL_SHATTER 8   /* reserved for the open/closed test */
 
 /* ---------------------------------------------------------------------------
    The engine.
@@ -349,6 +431,8 @@ bool   resolve(Hero& hero, Monster& monster, Damage& out);
 /* Abilities. */
 const char* ability_name(int tag);
 int resolve_ability(int tag, Monster& self, Hero& hero, Wave& wave, int verbose);
+int resolve_ability(const Ability& ability, Monster& self, Hero& hero,
+                    Wave& wave, int verbose);
 
 /* Bestiary. */
 Bestiary   build_bestiary();

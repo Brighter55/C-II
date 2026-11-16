@@ -73,12 +73,17 @@ endif()
 # Yes, compiling the same source file two different ways is an odd thing to
 # find in a codebase. Make a note of it for TRIAGE.md.
 # ---------------------------------------------------------------------------
-add_library(dd_engine STATIC src/dungeon_delve.cpp)
+# Abilities are one file each. The glob is the open/closed test: a new ability
+# is a new .cpp here and zero edits to this file or any other existing file.
+file(GLOB DD_ABILITY_SOURCES CONFIGURE_DEPENDS
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/abilities/*.cpp)
+
+add_library(dd_engine STATIC src/dungeon_delve.cpp ${DD_ABILITY_SOURCES})
 target_include_directories(dd_engine PUBLIC include)
 target_compile_definitions(dd_engine PRIVATE DD_NO_MAIN)
 target_link_libraries(dd_engine PUBLIC dd_sanitize_flags)
 
-add_executable(dungeon_delve src/dungeon_delve.cpp)
+add_executable(dungeon_delve src/dungeon_delve.cpp ${DD_ABILITY_SOURCES})
 target_include_directories(dungeon_delve PRIVATE include)
 target_link_libraries(dungeon_delve PRIVATE dd_sanitize_flags)
 
