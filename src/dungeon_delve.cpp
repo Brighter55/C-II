@@ -248,11 +248,16 @@ const char* roll_loot()
 
 int loot_value_of(const char* loot_name)
 {
-    for (int i = 0; i < LOOT_COUNT; i++) {
-        if (std::strcmp(LOOT_TABLE[i], loot_name) == 0)
-            return LOOT_VALUE[i];
+    if (loot_name == nullptr) return 0;
+
+    static Registry<int> index;
+    if (index.empty()) {
+        for (int i = 0; i < LOOT_COUNT; ++i)
+            index.add(LOOT_TABLE[i], LOOT_VALUE[i]);
     }
-    return 0;
+
+    const int* value = index.find(loot_name);
+    return value != nullptr ? *value : 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -464,21 +469,12 @@ bool resolve(Hero& hero, Monster& monster, Damage& out)
 
 Monster* find_in_bestiary(Bestiary& bestiary, const char* species)
 {
-    for (size_t i = 0; i < bestiary.size(); i++) {
-        if (std::strcmp(bestiary[i]->species, species) == 0)
-            return raw(bestiary[i]);
-    }
-    return nullptr;
+    return bestiary.find(species);
 }
 
 int count_species_in_bestiary(Bestiary& bestiary, const char* species)
 {
-    int n = 0;
-    for (size_t i = 0; i < bestiary.size(); i++) {
-        if (std::strcmp(bestiary[i]->species, species) == 0)
-            n++;
-    }
-    return n;
+    return bestiary.count_species(species);
 }
 
 Bestiary build_bestiary()
@@ -500,6 +496,8 @@ MonsterPtr spawn_from_bestiary(Bestiary& bestiary, const char* species)
 {
     Monster* proto = find_in_bestiary(bestiary, species);
     if (proto == nullptr) return MonsterPtr{};
+
+    record_species_seen(proto->species);
 
     return make_monster(proto->name().c_str(), proto->species, proto->max_hp,
                         proto->strength, proto->armor, proto->gold_drop,
@@ -791,9 +789,28 @@ void print_bestiary(Bestiary& bestiary)
 
 void print_loot_table()
 {
+    std::vector<const char*> table;
+    table.reserve(static_cast<std::size_t>(loot_count()));
+    for (int i = 0; i < loot_count(); ++i)
+        table.push_back(loot_at(i));
+
+    LegacyLootBridge::View names;
+    const int loaded = LegacyLootBridge::load(table.data(), loot_count(), names);
+
+    std::vector<const char*> back(names.in_use());
+    const int stored = LegacyLootBridge::store(names, back.data(),
+                                               static_cast<int>(back.size()));
+
+    bool preserved = (loaded == loot_count() && stored == loaded);
+    for (std::size_t i = 0; preserved && i < names.in_use(); ++i)
+        preserved = (back[i] == names.at(i)->c_str());
+
     std::printf("\nLoot table (%d entries):\n", LOOT_COUNT);
     for (int i = 0; i < LOOT_COUNT; i++)
-        std::printf("  %-22s %3d gold\n", LOOT_TABLE[i], LOOT_VALUE[i]);
+        std::printf("  %-22s %3d gold\n",
+                    names.at(static_cast<std::size_t>(i))->c_str(), LOOT_VALUE[i]);
+    std::printf("  (bridge round trip: %s)\n",
+                preserved ? "same pointers" : "FAILED");
 }
 
 /* ---------------------------------------------------------------------------
@@ -825,10 +842,15 @@ int run_campaign(int verbose)
     print_banner();
 
     Bestiary    bestiary = build_bestiary();
-    HeroPtr     hero_owner = make_hero("Ash", 100, 10, 3);
-    MerchantPtr yarrow_owner = make_merchant("Old Yarrow", 400, 35);
+    reset_species_seen();
 
-    Hero&     hero = *hero_owner;          /* non-owning alias for readability */
+    Pool<Hero, 1> hero_pool;
+    Hero* hero_slot = hero_pool.acquire();
+    if (hero_slot == nullptr) return 0;
+    *hero_slot = *make_hero("Ash", 100, 10, 3);
+    Hero& hero = *hero_slot;
+
+    MerchantPtr yarrow_owner = make_merchant("Old Yarrow", 400, 35);
     Merchant& yarrow = *yarrow_owner;      /* non-owning alias for readability */
 
     if (verbose) {
@@ -886,6 +908,7 @@ int run_campaign(int verbose)
         for (int i = 0; i < 64; i++) std::printf("=");
         std::printf("\n  %s clears the delve with %d gold.\n",
                     hero.name().c_str(), hero.gold);
+        std::printf("  species encountered: %d\n", species_seen_count());
         for (int i = 0; i < 64; i++) std::printf("=");
         std::printf("\n");
     }

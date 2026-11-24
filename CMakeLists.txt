@@ -78,12 +78,20 @@ endif()
 file(GLOB DD_ABILITY_SOURCES CONFIGURE_DEPENDS
      ${CMAKE_CURRENT_SOURCE_DIR}/src/abilities/*.cpp)
 
-add_library(dd_engine STATIC src/dungeon_delve.cpp ${DD_ABILITY_SOURCES})
+# The engine is built as an object library, not a static archive. An ability
+# registers itself from a static initializer, so nothing in the engine refers
+# to that translation unit by name. A static archive would be free to discard
+# the object, and the test binary would then see zero abilities and a summon
+# that never summons. Linking the objects directly keeps every registration.
+add_library(dd_engine OBJECT
+    src/dungeon_delve.cpp
+    src/data_layer.cpp
+    ${DD_ABILITY_SOURCES})
 target_include_directories(dd_engine PUBLIC include)
 target_compile_definitions(dd_engine PRIVATE DD_NO_MAIN)
 target_link_libraries(dd_engine PUBLIC dd_sanitize_flags)
 
-add_executable(dungeon_delve src/dungeon_delve.cpp ${DD_ABILITY_SOURCES})
+add_executable(dungeon_delve src/dungeon_delve.cpp src/data_layer.cpp ${DD_ABILITY_SOURCES})
 target_include_directories(dungeon_delve PRIVATE include)
 target_link_libraries(dungeon_delve PRIVATE dd_sanitize_flags)
 
@@ -121,6 +129,12 @@ enable_testing()
 
 add_executable(regression tests/regression.cpp)
 target_link_libraries(regression PRIVATE dd_engine dd_sanitize_flags)
+
+add_executable(data_layer_tests tests/data_layer_tests.cpp)
+target_link_libraries(data_layer_tests PRIVATE dd_engine dd_sanitize_flags)
+
+add_test(NAME data_layer
+         COMMAND data_layer_tests)
 
 add_test(NAME encounter_resolves
          COMMAND regression encounter_resolves)

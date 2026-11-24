@@ -5,15 +5,14 @@
 #include "dungeon_delve.h"
 
 #include <cstdio>
-#include <map>
 
 namespace {
 
-using Registry = std::map<int, const Ability*>;
+using AbilityRegistry = Registry<const Ability*, int>;
 
-Registry& registry()
+AbilityRegistry& registry()
 {
-    static Registry instance;
+    static AbilityRegistry instance;
     return instance;
 }
 
@@ -44,13 +43,13 @@ UnknownAbility& unknown()
 
 void register_ability(int tag, const Ability* ability)
 {
-    registry()[tag] = ability;
+    registry().set(tag, ability);
 }
 
 const Ability* ability_for_tag(int tag)
 {
-    const auto it = registry().find(tag);
-    return (it == registry().end()) ? nullptr : it->second;
+    const Ability* const* found = registry().find(tag);
+    return found == nullptr ? nullptr : *found;
 }
 
 const Ability* default_ability()

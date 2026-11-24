@@ -22,12 +22,15 @@
 #ifndef DUNGEON_DELVE_H
 #define DUNGEON_DELVE_H
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "data_layer.h"
 
 class Ability;
 
@@ -155,8 +158,31 @@ using MonsterPtr  = std::unique_ptr<Monster>;
 using HeroPtr     = std::unique_ptr<Hero>;
 using MerchantPtr = std::unique_ptr<Merchant>;
 
-using Wave     = std::vector<MonsterPtr>;
-using Bestiary = std::vector<MonsterPtr>;
+using Wave = std::vector<MonsterPtr>;
+
+/* ---------------------------------------------------------------------------
+   The bestiary is the Week 5 data layer.
+
+   It owns its monsters in a fixed-capacity Pool, so a monster's address does
+   not move, and it keeps a Registry from species name to that address. The
+   linear scan that used to find a species is gone: find is one ordered lookup
+   at O(log n). count_species still works because the registry allows
+   duplicate keys.
+   --------------------------------------------------------------------------- */
+class Bestiary {
+public:
+    void push_back(MonsterPtr monster);
+
+    std::size_t size() const noexcept;
+    const Monster* operator[](std::size_t index) const;
+
+    Monster* find(const char* species) const;
+    int count_species(const char* species) const;
+
+private:
+    Pool<Monster, 64>                            monsters_;
+    Registry<Monster*, std::string, BySpecies>   by_species_;
+};
 
 /* ---------------------------------------------------------------------------
    Abilities: the Build 4 polymorphism layer.
@@ -253,6 +279,19 @@ public:
 
     std::string describe_all() const;
     std::size_t size() const noexcept { return entities_.size(); }
+
+    // A sorted view over the roster. The comparator decides the order, so one
+    // body serves the function pointer, the function object, and the lambda.
+    template <typename Compare>
+    std::vector<const Entity*> sorted_by(Compare compare) const
+    {
+        std::vector<const Entity*> out;
+        out.reserve(entities_.size());
+        for (const auto& entity : entities_)
+            out.push_back(entity.get());
+        std::sort(out.begin(), out.end(), compare);
+        return out;
+    }
 
 private:
     std::vector<std::unique_ptr<Entity>> entities_;
